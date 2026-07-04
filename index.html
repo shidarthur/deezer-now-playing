@@ -62,7 +62,7 @@
         }
 
         #album-art {
-            width: 45%; /* Reduzido levemente para dar espaço à CPU */
+            width: 45%;
             aspect-ratio: 1 / 1;
             border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0,0,0,0.5);
@@ -105,7 +105,6 @@
             font-weight: bold;
         }
 
-        /* Estilização do contador de Temperatura da CPU */
         #cpu-temp-container {
             margin-top: 12px;
             font-size: 0.85rem;
@@ -122,7 +121,7 @@
         }
 
         #cpu-value {
-            color: #ff5d5d; /* Cor avermelhada clássica para temperatura */
+            color: #ff5d5d;
             font-weight: bold;
         }
 
@@ -153,7 +152,6 @@
     <script>
         // --- CONFIGURAÇÃO ---
         const LASTFM_USER = 'arthur_shida'; 
-        // Lembre-se de colar os 32 caracteres completos da sua chave aqui:
         const API_KEY = '152c13b7e74a4f66a2d6ceb0be427247'; 
         const INTERVAL_MS = 5000; 
         // ---------------------
@@ -167,20 +165,49 @@
 
         let currentTrackUrl = "";
 
-        // --- INTEGRAÇÃO COM A API DO NZXT CAM ---
-        // O NZXT CAM injeta automaticamente a função nzxt nas páginas web rodando dentro dele
+        function updateCPUTempDisplay(temperature) {
+            if (temperature) {
+                const temp = Math.round(temperature);
+                cpuValueEl.innerText = `${temp}°C`;
+            }
+        }
+
+        // --- MÉTODO 1: API Padrão Injetada (window.nzxt) ---
         window.nzxt = {
             v1: {
                 onMonitoringDataUpdate: (data) => {
-                    // Verifica se os dados de CPU estão disponíveis na leitura do hardware
                     if (data && data.cpu && data.cpu.temperature) {
-                        // Arredonda o valor da temperatura para não exibir casas decimais
-                        const temp = Math.round(data.cpu.temperature);
-                        cpuValueEl.innerText = `${temp}°C`;
+                        updateCPUTempDisplay(data.cpu.temperature);
                     }
                 }
             }
         };
+
+        // --- MÉTODO 2: Escuta de Mensagens PostMessage ---
+        window.addEventListener('message', (event) => {
+            try {
+                const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                if (data && data.cpu && data.cpu.temperature) {
+                    updateCPUTempDisplay(data.cpu.temperature);
+                } else if (data && data.monitoringData && data.monitoringData.cpu) {
+                    updateCPUTempDisplay(data.monitoringData.cpu.temperature);
+                }
+            } catch (e) {}
+        });
+
+        // --- MÉTODO 3: Requisição Local Avançada ---
+        async function fetchLocalCAMData() {
+            try {
+                const res = await fetch('http://localhost:7280/monitoring');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.cpu && data.cpu.temperature) {
+                        updateCPUTempDisplay(data.cpu.temperature);
+                    }
+                }
+            } catch (err) {}
+        }
+        setInterval(fetchLocalCAMData, 2000);
 
         // --- BUSCA DO DEEZER (VIA LAST.FM) ---
         async function updateNowPlaying() {
