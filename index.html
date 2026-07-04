@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Deezer Integration - NZXT Kraken</title>
+    <title>Deezer + CPU Temp - NZXT Kraken</title>
     <style>
         * {
             box-sizing: border-box;
@@ -16,7 +16,6 @@
             color: #fff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             overflow: hidden;
-            /* Garante que o conteúdo fique perfeitamente centralizado em telas redondas */
             width: 100vw;
             height: 100vh;
             display: flex;
@@ -24,12 +23,11 @@
             align-items: center;
         }
 
-        /* Container circular simulando a tela do AIO */
         #container {
             position: relative;
             width: 100%;
             height: 100%;
-            max-width: 640px; /* Resolução máxima do Kraken Elite */
+            max-width: 640px;
             max-height: 640px;
             border-radius: 50%;
             overflow: hidden;
@@ -38,10 +36,9 @@
             justify-content: center;
             align-items: center;
             text-align: center;
-            padding: 12%; /* Padding interno para evitar que textos cortem nas bordas redondas */
+            padding: 12%;
         }
 
-        /* Fundo desfocado usando a própria capa do álbum */
         #background-blur {
             position: absolute;
             top: 0;
@@ -55,7 +52,6 @@
             transition: background-image 0.8s ease-in-out;
         }
 
-        /* Conteúdo em primeiro plano */
         #content {
             position: relative;
             z-index: 2;
@@ -66,33 +62,32 @@
         }
 
         #album-art {
-            width: 50%;
+            width: 45%; /* Reduzido levemente para dar espaço à CPU */
             aspect-ratio: 1 / 1;
             border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             object-fit: cover;
             transition: transform 0.5s ease;
         }
 
-        /* Pequena animação de pulso se estiver tocando */
         .playing {
             animation: pulse 2s infinite ease-in-out;
         }
 
         #track-title {
-            font-size: 1.4rem;
+            font-size: 1.3rem;
             font-weight: bold;
             width: 100%;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            margin-bottom: 5px;
+            margin-bottom: 4px;
             text-shadow: 0 2px 4px rgba(0,0,0,0.8);
         }
 
         #artist-name {
-            font-size: 1rem;
+            font-size: 0.95rem;
             color: #ccc;
             width: 100%;
             white-space: nowrap;
@@ -102,11 +97,32 @@
         }
 
         #status {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 2px;
-            color: #007feb; /* Azul clássico do Deezer */
-            margin-top: 10px;
+            color: #007feb;
+            margin-top: 8px;
+            font-weight: bold;
+        }
+
+        /* Estilização do contador de Temperatura da CPU */
+        #cpu-temp-container {
+            margin-top: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.8);
+            background: rgba(0, 0, 0, 0.4);
+            padding: 4px 10px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(5px);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        #cpu-value {
+            color: #ff5d5d; /* Cor avermelhada clássica para temperatura */
             font-weight: bold;
         }
 
@@ -125,97 +141,112 @@
             <img id="album-art" src="" alt="Album Art" style="display: none;">
             <div id="track-title">Buscando música...</div>
             <div id="artist-name">Deezer Player</div>
-            <div id="status" id="status">Conectando</div>
+            <div id="status">Conectando</div>
+            
+            <div id="cpu-temp-container">
+                <span>CPU:</span>
+                <span id="cpu-value">--°C</span>
+            </div>
         </div>
     </div>
 
     <script>
         // --- CONFIGURAÇÃO ---
-const LASTFM_USER = 'arthur_shida'; 
-const API_KEY = '152c13b7e74a4f66a2d6ceb0be427247'; // Insira sua chave completa aqui
-const INTERVAL_MS = 5000; 
-// ---------------------
+        const LASTFM_USER = 'arthur_shida'; 
+        // Lembre-se de colar os 32 caracteres completos da sua chave aqui:
+        const API_KEY = '152c13b7e74a4f66a2d6ceb0be427247'; 
+        const INTERVAL_MS = 5000; 
+        // ---------------------
 
-const trackTitleEl = document.getElementById('track-title');
-const artistNameEl = document.getElementById('artist-name');
-const albumArtEl = document.getElementById('album-art');
-const bgBlurEl = document.getElementById('background-blur');
-const statusEl = document.getElementById('status');
+        const trackTitleEl = document.getElementById('track-title');
+        const artistNameEl = document.getElementById('artist-name');
+        const albumArtEl = document.getElementById('album-art');
+        const bgBlurEl = document.getElementById('background-blur');
+        const statusEl = document.getElementById('status');
+        const cpuValueEl = document.getElementById('cpu-value');
 
-let currentTrackUrl = "";
+        let currentTrackUrl = "";
 
-async function updateNowPlaying() {
-    const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${LASTFM_USER}&api_key=${API_KEY}&format=json&limit=1`;
-
-        try {
-            // Adicionamos um timeout de 4 segundos para a requisição não ficar travada se a internet oscilar
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-            const response = await fetch(url, { signal: controller.signal });
-            clearTimeout(timeoutId);
-
-            if (!response.ok) throw new Error('Erro na resposta do servidor');
-            
-            const data = await response.json();
-            
-            // Validação extra caso o Last.fm retorne uma estrutura inesperada ou erro de API externa
-            if (!data.recenttracks || !data.recenttracks.track || data.recenttracks.track.length === 0) {
-                return;
+        // --- INTEGRAÇÃO COM A API DO NZXT CAM ---
+        // O NZXT CAM injeta automaticamente a função nzxt nas páginas web rodando dentro dele
+        window.nzxt = {
+            v1: {
+                onMonitoringDataUpdate: (data) => {
+                    // Verifica se os dados de CPU estão disponíveis na leitura do hardware
+                    if (data && data.cpu && data.cpu.temperature) {
+                        // Arredonda o valor da temperatura para não exibir casas decimais
+                        const temp = Math.round(data.cpu.temperature);
+                        cpuValueEl.innerText = `${temp}°C`;
+                    }
+                }
             }
+        };
 
-            const track = data.recenttracks.track[0];
-            const isPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
-            
-            if (track.url === currentTrackUrl) {
-                if (!isPlaying) {
-                    statusEl.innerText = "Pausado";
-                    albumArtEl.classList.remove('playing');
-                } else {
+        // --- BUSCA DO DEEZER (VIA LAST.FM) ---
+        async function updateNowPlaying() {
+            const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${LASTFM_USER}&api_key=${API_KEY}&format=json&limit=1`;
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+                const response = await fetch(url, { signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if (!response.ok) throw new Error('Erro na resposta');
+                
+                const data = await response.json();
+                if (!data.recenttracks || !data.recenttracks.track || data.recenttracks.track.length === 0) return;
+
+                const track = data.recenttracks.track[0];
+                const isPlaying = track['@attr'] && track['@attr'].nowplaying === 'true';
+                
+                if (track.url === currentTrackUrl) {
+                    if (!isPlaying) {
+                        statusEl.innerText = "Pausado";
+                        albumArtEl.classList.remove('playing');
+                    } else {
+                        statusEl.innerText = "Tocando agora";
+                        albumArtEl.classList.add('playing');
+                    }
+                    return;
+                }
+
+                currentTrackUrl = track.url;
+
+                const title = track.name;
+                const artist = track.artist['#text'];
+                let imgUrl = track.image[track.image.length - 1]['#text']; 
+
+                if (!imgUrl) {
+                    imgUrl = 'https://www.deezer.com/assets/images/dev/deezer-logo-circle.png'; 
+                }
+
+                trackTitleEl.innerText = title;
+                artistNameEl.innerText = artist;
+                albumArtEl.src = imgUrl;
+                albumArtEl.style.display = 'block';
+                bgBlurEl.style.backgroundImage = `url('${imgUrl}')`;
+
+                if (isPlaying) {
                     statusEl.innerText = "Tocando agora";
                     albumArtEl.classList.add('playing');
+                } else {
+                    statusEl.innerText = "Última tocada";
+                    albumArtEl.classList.remove('playing');
                 }
-                return;
-            }
 
-            currentTrackUrl = track.url;
-
-            const title = track.name;
-            const artist = track.artist['#text'];
-            let imgUrl = track.image[track.image.length - 1]['#text']; 
-
-            if (!imgUrl) {
-                imgUrl = 'https://www.deezer.com/assets/images/dev/deezer-logo-circle.png'; 
-            }
-
-            trackTitleEl.innerText = title;
-            artistNameEl.innerText = artist;
-            albumArtEl.src = imgUrl;
-            albumArtEl.style.display = 'block';
-            bgBlurEl.style.backgroundImage = `url('${imgUrl}')`;
-
-            if (isPlaying) {
-                statusEl.innerText = "Tocando agora";
-                albumArtEl.classList.add('playing');
-            } else {
-                statusEl.innerText = "Última tocada";
-                albumArtEl.classList.remove('playing');
-            }
-
-        } catch (error) {
-            // Se o erro for falta de internet ou timeout, avisa na tela discretamente sem quebrar o loop
-            if (error.name === 'AbortError' || !navigator.onLine) {
-                statusEl.innerText = "Aguardando Conexão...";
-            } else {
-                console.warn('Erro temporário de conexão:', error.message);
-                statusEl.innerText = "Tentando reconectar...";
+            } catch (error) {
+                if (error.name === 'AbortError' || !navigator.onLine) {
+                    statusEl.innerText = "Aguardando Conexão...";
+                } else {
+                    statusEl.innerText = "Tentando reconectar...";
+                }
             }
         }
-    }
 
-    // Executa ao carregar e define o loop de atualização
-    updateNowPlaying();
-    setInterval(updateNowPlaying, INTERVAL_MS);
+        updateNowPlaying();
+        setInterval(updateNowPlaying, INTERVAL_MS);
     </script>
 </body>
 </html>
